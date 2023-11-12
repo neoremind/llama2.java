@@ -170,9 +170,7 @@ public class Llama2_q {
         int n_layers = p.n_layers;
         long pos = HEADER_SIZE;
 
-        // first are the parameters that are kept in fp32 (the rmsnorm (1D) weights)
-
-        ExecutorService executor = Executors.newFixedThreadPool(16);
+        ExecutorService executor = Executors.newFixedThreadPool(8);
 
         int rms_att_weight_len = n_layers * p.dim;
         final long rms_att_weight_pos = pos;
@@ -612,8 +610,9 @@ public class Llama2_q {
             System.arraycopy(s.v, 0, s.value_cache, loff + pos * kv_dim, kv_dim);
 
             // multihead attention. iterate over all heads
-            int h;
-            for (h = 0; h < p.n_heads; h++) {
+            // int h;
+            // for (h = 0; h < p.n_heads; h++) {
+            IntStream.range(0, p.n_heads).parallel().forEach(h -> {
                 // get the query vector for this head
                 int qOffset = h * head_size;
                 // attention scores for this head
@@ -637,7 +636,7 @@ public class Llama2_q {
 
                 // weighted sum of the values, store back into xb
                 int xbOffset = h * head_size;
-                Arrays.fill(s.xb, xbOffset, xbOffset + head_size, 0F);
+                arrayFill(s.xb, xbOffset, xbOffset + head_size, 0F);
                 for (int t = 0; t <= pos; t++) {
                     // get the value vector for this head and at this timestep
                     int valueCacheOffset = loff + t * kv_dim + (h / kv_mul) * head_size;
@@ -648,7 +647,7 @@ public class Llama2_q {
                         s.xb[xbOffset + i] += a * s.value_cache[valueCacheOffset + i];
                     }
                 }
-            }
+            });
 
             // final matmul to get the output of the attention
             quantize(s.xq, s.xb, dim);
@@ -780,7 +779,7 @@ public class Llama2_q {
             // apply softmax to the logits to get the probabilities for next token
             softmax(logits, 0, sampler.vocab_size);
             // flip a (float) coin (this is our source of entropy for sampling)
-            float coin = random_f32(sampler.rng_state);
+            float coin =sampler.random_f32();
             // we sample from this distribution to get the next token
             if (sampler.topp <= 0 || sampler.topp >= 1) {
                 // simply sample from the predicted probability distribution
@@ -804,18 +803,6 @@ public class Llama2_q {
             }
         }
         return max_i;
-    }
-
-    static float random_f32(long state) { // random float32 in [0,1)
-        return (random_u32(state) >>> 8) / 16777216.0F;
-    }
-
-    static int random_u32(long state) {
-        // xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
-        state ^= state >> 12;
-        state ^= state << 25;
-        state ^= state >> 27;
-        return (int) ((state * 0x2545F4914F6CDD1DL) >> 32);
     }
 
     static int sample_mult(float[] probabilities, int n, float coin) {
@@ -931,6 +918,12 @@ public class Llama2_q {
         return res;
     }
 
+    static void arrayFill(float[] a, int fromIndex, int toIndex, float val) {
+        for (int i = fromIndex; i < toIndex; i++) {
+            a[i] = val;
+        }
+    }
+
     static void logError(String s) {
         if (LOG_LEVEL > 0) {
             System.err.println(DATE_FORMAT.format(new Date()) + " [ERROR] " + s);
@@ -1025,7 +1018,7 @@ public class Llama2_q {
 
         logInfo("Inference parameters: temperature=" + temperature + ", topp=" + topp + ", steps=" + steps
                 + ", mode=" + mode
-                + ", matmul.parallelism=" + ForkJoinPool.getCommonPoolParallelism()
+                + ", parallelism=" + ForkJoinPool.getCommonPoolParallelism()
                 + ", vectorized.matmul.enabled=" + VECTOR_MATMUL_ENABLED);
 
         // build the Transformer via the model .bin file
@@ -1193,6 +1186,18 @@ class Sampler {
     float temperature;
     float topp;
     long rng_state;
+
+    float random_f32() { // random float32 in [0,1)
+        return (random_u32() >>> 8) / 16777216.0F;
+    }
+
+    int random_u32() {
+        // xorshift rng: https://en.wikipedia.org/wiki/Xorshift#xorshift.2A
+        rng_state ^= rng_state >> 12;
+        rng_state ^= rng_state << 25;
+        rng_state ^= rng_state >> 27;
+        return (int) ((rng_state * 0x2545F4914F6CDD1DL) >> 32);
+    }
 }
 
 class ProbIndex {
