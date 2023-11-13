@@ -121,18 +121,6 @@ For, llama2.java, compile commands show as below.
 
 `javac --enable-preview -source 17 --add-modules=jdk.incubator.vector quantization/Llama2_q.java`.
 
-**Llama2.c**
-
-For single threaded benchmark, `make run` that equals to `gcc -O3 -o run run.c -lm` and `gcc -O3 -o runq runq.c -lm`.
-
-For multi-threaded benchmarks, `make runomp` that equals to `gcc -Ofast -fopenmp -march=native run.c -lm -o run` and `gcc -Ofast -fopenmp -march=native runq.c -lm -o runq`.
-
-**Llama2.java**
-
-`javac --enable-preview -source 17 --add-modules=jdk.incubator.vector Llama2.java`.
-
-`javac --enable-preview -source 17 --add-modules=jdk.incubator.vector quantization/Llama2_q.java`.
-
 ### Run
 
 **Llama2.c**
@@ -142,6 +130,7 @@ OMP_NUM_THREADS=8 ./run llama2_7b.bin -n 256 -i "New York is a city where"
 
 OMP_NUM_THREADS=8 ./runq llama2_7b_q80.bin -n 256 -i "New York is a city where"
 ```
+Note: remove `OMP_NUM_THREADS=8` to disable parallel execution of matmul and MHA.
 
 **Llama2.java**
 
